@@ -1257,8 +1257,8 @@ class IT600Gateway:
             )
             payload = {"sTherS": {"SetSystemMode": sys_mode}}
         else:
-            # iT600: HoldType 7 = off, 0 = follow schedule (auto/heat)
-            hold = 7 if mode == HVAC_MODE_OFF else 0
+            # iT600: HoldType 7 = off, 2 = permanent hold (heat), 0 = follow schedule (auto)
+            hold = 7 if mode == HVAC_MODE_OFF else 2 if mode == HVAC_MODE_HEAT else 0
             payload = {"sIT600TH": {"SetHoldType": hold}}
 
         await self._make_encrypted_request(

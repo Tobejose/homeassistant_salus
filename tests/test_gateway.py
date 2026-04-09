@@ -1821,6 +1821,30 @@ class TestCommands:
         call_body = mock_req.call_args[0][1]
         assert call_body["id"][0]["sIT600TH"]["SetHoldType"] == 7
 
+    async def test_set_climate_mode_heat(self, climate_device):
+        gw = _make_gateway()
+        gw._climate_devices = {climate_device.unique_id: climate_device}
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_mode(climate_device.unique_id, HVAC_MODE_HEAT)
+
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sIT600TH"]["SetHoldType"] == 2
+
+    async def test_set_climate_mode_auto(self, climate_device):
+        gw = _make_gateway()
+        gw._climate_devices = {climate_device.unique_id: climate_device}
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_mode(climate_device.unique_id, HVAC_MODE_AUTO)
+
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sIT600TH"]["SetHoldType"] == 0
+
     async def test_set_climate_fan_mode(self):
         """Test fan mode on FC600-style device."""
         from custom_components.salus.models import ClimateDevice
