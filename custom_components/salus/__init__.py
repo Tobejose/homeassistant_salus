@@ -49,6 +49,12 @@ async def async_setup_entry(
     if entry.data.get(CONF_FLOW_TYPE) == CONF_USER:
         if not await async_setup_gateway_entry(hass, entry):
             return False
+    else:
+        _LOGGER.debug(
+            "Skipping entry %s (flow type %s)",
+            entry.entry_id,
+            entry.data.get(CONF_FLOW_TYPE),
+        )
 
     return True
 
@@ -83,12 +89,14 @@ async def async_setup_gateway_entry(
         _LOGGER.error(
             "Connection error: check if you have specified gateway's HOST correctly."
         )
+        await gateway.close()
         return False
     except IT600AuthenticationError:
         _LOGGER.error(
             "Authentication error: check if you have specified "
             "gateway's EUID correctly."
         )
+        await gateway.close()
         return False
     except IT600UnsupportedFirmwareError:
         _LOGGER.error(
@@ -96,7 +104,10 @@ async def async_setup_gateway_entry(
             "Enable debug logging for custom_components.salus and open an issue at "
             "https://github.com/leonardpitzu/homeassistant_salus/issues"
         )
+        await gateway.close()
         return False
+
+    _LOGGER.debug("Successfully connected to Salus gateway at %s", host)
 
     # ── Shared coordinator ──────────────────────────────────────────
     # Tolerate up to N consecutive poll failures before marking entities
@@ -117,13 +128,17 @@ async def async_setup_gateway_entry(
             return True
         except Exception:
             consecutive_failures += 1
+            if max_failures == 0 or consecutive_failures >= max_failures:
+                _LOGGER.debug(
+                    "Poll failed (%d consecutive) — marking entities unavailable",
+                    consecutive_failures,
+                )
+                raise
             _LOGGER.debug(
                 "Poll failed (%d/%d before unavailable)",
                 consecutive_failures,
                 max_failures,
             )
-            if max_failures == 0 or consecutive_failures >= max_failures:
-                raise
             # Swallow the error — keep last known good state.
             return True
 
@@ -158,6 +173,8 @@ async def async_setup_gateway_entry(
             model=gateway_info.model,
             sw_version=gateway_info.sw_version,
         )
+    else:
+        _LOGGER.debug("Gateway device info unavailable — skipping device registry")
 
     await hass.config_entries.async_forward_entry_setups(entry, GATEWAY_PLATFORMS)
 
@@ -169,6 +186,7 @@ async def async_unload_entry(
     config_entry: config_entries.ConfigEntry,
 ) -> bool:
     """Unload a config entry."""
+    _LOGGER.debug("Unloading Salus config entry %s", config_entry.entry_id)
     unload_ok = await hass.config_entries.async_unload_platforms(
         config_entry, GATEWAY_PLATFORMS
     )
@@ -179,5 +197,19 @@ async def async_unload_entry(
             gateway = data if isinstance(data, IT600Gateway) else data.get("gateway")
             if gateway is not None:
                 await gateway.close()
+                _LOGGER.debug("Gateway session closed for %s", config_entry.entry_id)
+            else:
+                _LOGGER.debug(
+                    "No gateway found in entry data during unload — "
+                    "session may not have been closed"
+                )
+        else:
+            _LOGGER.debug(
+                "No data found for entry %s during unload", config_entry.entry_id
+            )
+    else:
+        _LOGGER.debug(
+            "Platform unload failed for entry %s", config_entry.entry_id
+        )
 
     return unload_ok

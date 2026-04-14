@@ -237,6 +237,21 @@ class IT600Gateway:
             "read", {"requestAttr": "readall"}
         )
 
+        # Dump every device entry so unknown models (e.g. TRV3RF) are visible
+        # in the debug log with their full JSON structure.
+        for device_entry in all_devices.get("id", []):
+            model = (
+                device_entry.get("sBasicS", {}).get("ModelIdentifier")
+                or device_entry.get("sZDO", {}).get("ModelIdentifier")
+                or "unknown"
+            )
+            _LOGGER.debug(
+                "Device [%s] model=%s: %s",
+                device_entry.get("data", "?"),
+                model,
+                json.dumps(device_entry, default=str),
+            )
+
         for label, key, refresher in (
             ("gateway", "sGateway", self._refresh_gateway_device),
             ("climate", ("sIT600TH", "sTherS"), self._refresh_climate_devices),
@@ -1400,6 +1415,10 @@ class IT600Gateway:
 
         async with self._lock:
             if self._session is None:
+                _LOGGER.debug(
+                    "Creating new HTTP session for gateway %s (lazy)",
+                    self._host,
+                )
                 self._session = aiohttp.ClientSession()
                 self._close_session = True
 
@@ -1470,7 +1489,11 @@ class IT600Gateway:
     async def close(self) -> None:
         """Close the HTTP session if we own it."""
         if self._session and self._close_session:
+            _LOGGER.debug("Closing HTTP session for gateway %s", self._host)
             await self._session.close()
+            self._session = None
+        elif not self._session:
+            _LOGGER.debug("close() called but no session to close")
 
     async def __aenter__(self) -> IT600Gateway:
         return self
