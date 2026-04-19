@@ -115,6 +115,12 @@ BATTERY_VOLTAGE_THRESHOLDS: dict[str, list[tuple[float, int, str]]] = {
         (4.2, 25, "low"),
         (0.0, 0, "critical"),
     ],
+    "trv": [
+        (2.7, 100, "full"),
+        (2.4, 50, "half"),
+        (2.2, 25, "low"),
+        (0.0, 0, "critical"),
+    ],
 }
 
 # Models that use the "door" voltage curve (CO, smoke, remote temp)
@@ -138,6 +144,12 @@ ENERGY_METER_VOLTAGE_MODELS: frozenset[str] = frozenset(
     {
         "RE600",
         "RE10B",
+    }
+)
+# Models that use the "trv" voltage curve (battery-powered TRVs)
+TRV_VOLTAGE_MODELS: frozenset[str] = frozenset(
+    {
+        "TRV3RF",
     }
 )
 

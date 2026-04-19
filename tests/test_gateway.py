@@ -863,6 +863,229 @@ class TestRefreshClimateDevices:
         assert "thermo_sq_battery" in sensors
         assert sensors["thermo_sq_battery"].state == 0
 
+    async def test_trv3rf_heating(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_001"}, "sTherS": {}}]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_001", "Endpoint": 1},
+                    "sTherS": {
+                        "LocalTemperature_x100": 1908,
+                        "HeatingSetpoint_x100": 1900,
+                        "MaxHeatSetpoint_x100": 3500,
+                        "MinHeatSetpoint_x100": 500,
+                        "CoolingSetpoint_x100": 2400,
+                        "SystemMode": 4,
+                        "RunningState": 1,
+                    },
+                    "sComm": {"HoldType": 2},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "HK Bad EG"}',
+                        "FirmwareVersion": "45002000",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_001")
+        assert dev is not None
+        assert dev.hvac_mode == HVAC_MODE_HEAT
+        assert dev.hvac_action == CURRENT_HVAC_HEAT
+        assert dev.current_temperature == 19.08
+        assert dev.target_temperature == 19.0
+        assert dev.max_temp == 35.0
+        assert dev.min_temp == 5.0
+        assert dev.preset_mode == PRESET_PERMANENT_HOLD
+        assert dev.fan_mode is None
+        assert dev.fan_modes is None
+        assert dev.model == "TRV3RF"
+        assert HVAC_MODE_OFF in dev.hvac_modes
+        assert HVAC_MODE_HEAT in dev.hvac_modes
+        assert HVAC_MODE_AUTO in dev.hvac_modes
+        assert HVAC_MODE_COOL not in dev.hvac_modes
+
+    async def test_trv3rf_off_mode(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_002"}, "sTherS": {}}]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_002", "Endpoint": 1},
+                    "sTherS": {
+                        "LocalTemperature_x100": 1800,
+                        "HeatingSetpoint_x100": 1900,
+                        "MaxHeatSetpoint_x100": 3500,
+                        "MinHeatSetpoint_x100": 500,
+                        "CoolingSetpoint_x100": 2400,
+                        "SystemMode": 4,
+                        "RunningState": 0,
+                    },
+                    "sComm": {"HoldType": 7},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Off"}',
+                        "FirmwareVersion": "45002000",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_002")
+        assert dev is not None
+        assert dev.hvac_mode == HVAC_MODE_OFF
+        assert dev.hvac_action == CURRENT_HVAC_OFF
+        assert dev.preset_mode == PRESET_OFF
+
+    async def test_trv3rf_auto_mode(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_003"}, "sTherS": {}}]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_003", "Endpoint": 1},
+                    "sTherS": {
+                        "LocalTemperature_x100": 2000,
+                        "HeatingSetpoint_x100": 2100,
+                        "MaxHeatSetpoint_x100": 3500,
+                        "MinHeatSetpoint_x100": 500,
+                        "CoolingSetpoint_x100": 2400,
+                        "SystemMode": 4,
+                        "RunningState": 1,
+                    },
+                    "sComm": {"HoldType": 0},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Auto"}',
+                        "FirmwareVersion": "45002000",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_003")
+        assert dev is not None
+        assert dev.hvac_mode == HVAC_MODE_AUTO
+        assert dev.hvac_action == CURRENT_HVAC_HEAT
+        assert dev.preset_mode == PRESET_FOLLOW_SCHEDULE
+
+    async def test_trv3rf_locked(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_lock"}, "sTherS": {}}]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_lock", "Endpoint": 1},
+                    "sTherS": {
+                        "LocalTemperature_x100": 2000,
+                        "HeatingSetpoint_x100": 2100,
+                        "MaxHeatSetpoint_x100": 3500,
+                        "MinHeatSetpoint_x100": 500,
+                        "CoolingSetpoint_x100": 2400,
+                        "SystemMode": 4,
+                        "RunningState": 0,
+                    },
+                    "sComm": {"HoldType": 2},
+                    "sTherUIS": {"LockKey": 1},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Locked"}',
+                        "FirmwareVersion": "45002000",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_lock")
+        assert dev is not None
+        assert dev.locked is True
+
+    async def test_trv3rf_battery_from_sPowerS(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_bat"}, "sTherS": {}}]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_bat", "Endpoint": 1},
+                    "sTherS": {
+                        "LocalTemperature_x100": 2000,
+                        "HeatingSetpoint_x100": 2100,
+                        "MaxHeatSetpoint_x100": 3500,
+                        "MinHeatSetpoint_x100": 500,
+                        "CoolingSetpoint_x100": 2400,
+                        "SystemMode": 4,
+                        "RunningState": 0,
+                    },
+                    "sComm": {"HoldType": 0},
+                    "sPowerS": {"BatteryVoltage_x10": 29},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Battery"}',
+                        "FirmwareVersion": "45002000",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        sensors = gw.get_sensor_devices()
+        assert "trv_bat_battery" in sensors
+        bat = sensors["trv_bat_battery"]
+        assert bat.device_class == "battery"
+        assert bat.unit_of_measurement == "%"
+        assert bat.state == 100  # 2.9V is above 2.7V threshold
+        assert bat.name == "TRV Battery Battery"
+
     async def test_empty_list_clears_devices(self):
         gw = _make_gateway()
         await gw._refresh_climate_devices([])
@@ -1894,6 +2117,152 @@ class TestCommands:
 
         call_body = mock_req.call_args[0][1]
         assert call_body["id"][0]["sFanS"]["FanMode"] == 3
+
+    async def test_set_climate_temperature_trv3rf(self):
+        from custom_components.salus.models import ClimateDevice
+
+        trv = ClimateDevice(
+            available=True,
+            name="TRV",
+            unique_id="trv_cmd",
+            temperature_unit="°C",
+            precision=0.1,
+            current_temperature=19.0,
+            target_temperature=19.0,
+            max_temp=35.0,
+            min_temp=5.0,
+            current_humidity=None,
+            hvac_mode=HVAC_MODE_HEAT,
+            hvac_action=CURRENT_HVAC_HEAT,
+            hvac_modes=[HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO],
+            preset_mode=PRESET_PERMANENT_HOLD,
+            preset_modes=[PRESET_FOLLOW_SCHEDULE, PRESET_PERMANENT_HOLD, PRESET_OFF],
+            fan_mode=None,
+            fan_modes=None,
+            locked=False,
+            supported_features=SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE,
+            device_class="temperature",
+            data={"UniID": "trv_cmd", "Endpoint": 1},
+            manufacturer="SALUS",
+            model="TRV3RF",
+            sw_version="45002000",
+        )
+        gw = _make_gateway()
+        gw._climate_devices = {"trv_cmd": trv}
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_temperature("trv_cmd", 21.5)
+
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sTherS"]["SetHeatingSetpoint_x100"] == 2150
+
+    async def test_set_climate_preset_trv3rf(self):
+        from custom_components.salus.models import ClimateDevice
+
+        trv = ClimateDevice(
+            available=True,
+            name="TRV",
+            unique_id="trv_cmd2",
+            temperature_unit="°C",
+            precision=0.1,
+            current_temperature=19.0,
+            target_temperature=19.0,
+            max_temp=35.0,
+            min_temp=5.0,
+            current_humidity=None,
+            hvac_mode=HVAC_MODE_HEAT,
+            hvac_action=CURRENT_HVAC_HEAT,
+            hvac_modes=[HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO],
+            preset_mode=PRESET_PERMANENT_HOLD,
+            preset_modes=[PRESET_FOLLOW_SCHEDULE, PRESET_PERMANENT_HOLD, PRESET_OFF],
+            fan_mode=None,
+            fan_modes=None,
+            locked=False,
+            supported_features=SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE,
+            device_class="temperature",
+            data={"UniID": "trv_cmd2", "Endpoint": 1},
+            manufacturer="SALUS",
+            model="TRV3RF",
+            sw_version="45002000",
+        )
+        gw = _make_gateway()
+        gw._climate_devices = {"trv_cmd2": trv}
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_preset("trv_cmd2", PRESET_OFF)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 7
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_preset("trv_cmd2", PRESET_PERMANENT_HOLD)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 2
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_preset("trv_cmd2", PRESET_FOLLOW_SCHEDULE)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 0
+
+    async def test_set_climate_mode_trv3rf(self):
+        from custom_components.salus.models import ClimateDevice
+
+        trv = ClimateDevice(
+            available=True,
+            name="TRV",
+            unique_id="trv_cmd3",
+            temperature_unit="°C",
+            precision=0.1,
+            current_temperature=19.0,
+            target_temperature=19.0,
+            max_temp=35.0,
+            min_temp=5.0,
+            current_humidity=None,
+            hvac_mode=HVAC_MODE_HEAT,
+            hvac_action=CURRENT_HVAC_HEAT,
+            hvac_modes=[HVAC_MODE_OFF, HVAC_MODE_HEAT, HVAC_MODE_AUTO],
+            preset_mode=PRESET_PERMANENT_HOLD,
+            preset_modes=[PRESET_FOLLOW_SCHEDULE, PRESET_PERMANENT_HOLD, PRESET_OFF],
+            fan_mode=None,
+            fan_modes=None,
+            locked=False,
+            supported_features=SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE,
+            device_class="temperature",
+            data={"UniID": "trv_cmd3", "Endpoint": 1},
+            manufacturer="SALUS",
+            model="TRV3RF",
+            sw_version="45002000",
+        )
+        gw = _make_gateway()
+        gw._climate_devices = {"trv_cmd3": trv}
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_mode("trv_cmd3", HVAC_MODE_OFF)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 7
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_mode("trv_cmd3", HVAC_MODE_HEAT)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 2
+
+        with patch.object(
+            gw, "_make_encrypted_request", new_callable=AsyncMock
+        ) as mock_req:
+            await gw.set_climate_device_mode("trv_cmd3", HVAC_MODE_AUTO)
+        call_body = mock_req.call_args[0][1]
+        assert call_body["id"][0]["sComm"]["SetHoldType"] == 0
 
     async def test_missing_device_logs_error(self):
         gw = _make_gateway()

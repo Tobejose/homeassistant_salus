@@ -46,6 +46,7 @@ from .const import (
     SUPPORT_TARGET_TEMPERATURE,
     TEMP_CELSIUS,
     THERMOSTAT_ERROR_CODES,
+    TRV_VOLTAGE_MODELS,
     WINDOW_VOLTAGE_MODELS,
 )
 from .exceptions import (
@@ -946,6 +947,63 @@ class IT600Gateway:
                             | SUPPORT_FAN_MODE
                         ),
                     )
+
+                elif ther is not None and scomm is not None:
+                    # TRV devices (e.g. TRV3RF): sTherS + sComm, no sFanS.
+                    # Heating-only TRVs with battery power and valve control.
+                    hold = scomm["HoldType"]
+                    running = ther["RunningState"]
+
+                    device = ClimateDevice(
+                        **common,
+                        current_humidity=None,
+                        current_temperature=ther["LocalTemperature_x100"] / 100,
+                        target_temperature=ther["HeatingSetpoint_x100"] / 100,
+                        max_temp=ther.get("MaxHeatSetpoint_x100", 3500) / 100,
+                        min_temp=ther.get("MinHeatSetpoint_x100", 500) / 100,
+                        hvac_mode=(
+                            HVAC_MODE_OFF
+                            if hold == 7
+                            else HVAC_MODE_HEAT
+                            if hold == 2
+                            else HVAC_MODE_AUTO
+                        ),
+                        hvac_action=(
+                            CURRENT_HVAC_OFF
+                            if hold == 7
+                            else CURRENT_HVAC_IDLE
+                            if running == 0
+                            else CURRENT_HVAC_HEAT
+                        ),
+                        hvac_modes=[
+                            HVAC_MODE_OFF,
+                            HVAC_MODE_HEAT,
+                            HVAC_MODE_AUTO,
+                        ],
+                        preset_mode=(
+                            PRESET_OFF
+                            if hold == 7
+                            else PRESET_PERMANENT_HOLD
+                            if hold == 2
+                            else PRESET_FOLLOW_SCHEDULE
+                        ),
+                        preset_modes=[
+                            PRESET_FOLLOW_SCHEDULE,
+                            PRESET_PERMANENT_HOLD,
+                            PRESET_OFF,
+                        ],
+                        fan_mode=None,
+                        fan_modes=None,
+                        locked=(
+                            ds["sTherUIS"].get("LockKey", 0) == 1
+                            if "sTherUIS" in ds
+                            else None
+                        ),
+                        supported_features=(
+                            SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
+                        ),
+                    )
+
                 else:
                     continue
 
@@ -982,6 +1040,32 @@ class IT600Gateway:
                             battery_local[battery_uid] = battery_sensor
                     except (ValueError, IndexError):
                         pass
+
+                # Battery from sPowerS (voltage-based, e.g. TRV3RF).
+                # These devices report BatteryVoltage_x10 in their
+                # sPowerS cluster instead of Status_d.
+                power_s = ds.get("sPowerS")
+                if power_s is not None and unique_id not in battery_local:
+                    raw_voltage_x10 = power_s.get("BatteryVoltage_x10")
+                    if raw_voltage_x10 is not None:
+                        voltage = raw_voltage_x10 / 10.0
+                        pct = self._voltage_to_battery_pct(voltage, model)
+                        if pct is not None:
+                            battery_uid = f"{unique_id}_battery"
+                            battery_local[battery_uid] = SensorDevice(
+                                available=device.available,
+                                name=f"{device.name} Battery",
+                                unique_id=battery_uid,
+                                state=pct,
+                                unit_of_measurement="%",
+                                device_class="battery",
+                                data=ds["data"],
+                                manufacturer=device.manufacturer,
+                                model=device.model,
+                                sw_version=device.sw_version,
+                                parent_unique_id=unique_id,
+                                entity_category="diagnostic",
+                            )
 
                 # Parse thermostat error flags (Error01 … Error32)
                 # and aggregate into one "problem" sensor + one "low battery"
@@ -1241,6 +1325,15 @@ class IT600Gateway:
                 else 0
             )
             payload = {"sComm": {"SetHoldType": hold}}
+        elif device.model in TRV_VOLTAGE_MODELS:
+            hold = (
+                7
+                if preset == PRESET_OFF
+                else 2
+                if preset == PRESET_PERMANENT_HOLD
+                else 0
+            )
+            payload = {"sComm": {"SetHoldType": hold}}
         else:
             hold = (
                 7
@@ -1271,6 +1364,10 @@ class IT600Gateway:
                 4 if mode == HVAC_MODE_HEAT else 3 if mode == HVAC_MODE_COOL else 1
             )
             payload = {"sTherS": {"SetSystemMode": sys_mode}}
+        elif device.model in TRV_VOLTAGE_MODELS:
+            # TRV: HoldType 7 = off, 2 = permanent hold (heat), 0 = follow schedule (auto)
+            hold = 7 if mode == HVAC_MODE_OFF else 2 if mode == HVAC_MODE_HEAT else 0
+            payload = {"sComm": {"SetHoldType": hold}}
         else:
             # iT600: HoldType 7 = off, 2 = permanent hold (heat), 0 = follow schedule (auto)
             hold = 7 if mode == HVAC_MODE_OFF else 2 if mode == HVAC_MODE_HEAT else 0
@@ -1345,6 +1442,8 @@ class IT600Gateway:
                 payload = {"sTherS": {"SetCoolingSetpoint_x100": value}}
             else:
                 payload = {"sTherS": {"SetHeatingSetpoint_x100": value}}
+        elif device.model in TRV_VOLTAGE_MODELS:
+            payload = {"sTherS": {"SetHeatingSetpoint_x100": value}}
         else:
             payload = {"sIT600TH": {"SetHeatingSetpoint_x100": value}}
 
@@ -1389,6 +1488,8 @@ class IT600Gateway:
             curve = "door"
         elif model in ENERGY_METER_VOLTAGE_MODELS:
             curve = "energy_meter"
+        elif model in TRV_VOLTAGE_MODELS:
+            curve = "trv"
         else:
             # Use door curve as a safe default for any battery device
             curve = "door"
