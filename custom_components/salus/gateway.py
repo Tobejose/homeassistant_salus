@@ -695,6 +695,25 @@ class IT600Gateway:
                         parent_unique_id=unique_id,
                         entity_category="diagnostic",
                     )
+                elif model == "it600MINITRV":
+                    # it600MINITRV has no sPowerS or sIASZS clusters;
+                    # low battery is reported via TRVError22 in sIT600I.
+                    trv_low_batt = ds.get("sIT600I", {}).get("TRVError22")
+                    if trv_low_batt is not None:
+                        lb_uid = f"{unique_id}_low_battery"
+                        local[lb_uid] = BinarySensorDevice(
+                            available=device.available,
+                            name=f"{device.name} Low battery",
+                            unique_id=lb_uid,
+                            is_on=trv_low_batt == 1,
+                            device_class="battery",
+                            data=ds["data"],
+                            manufacturer=device.manufacturer,
+                            model=device.model,
+                            sw_version=device.sw_version,
+                            parent_unique_id=unique_id,
+                            entity_category="diagnostic",
+                        )
 
                 if send_callback:
                     self._binary_sensor_devices[device.unique_id] = device

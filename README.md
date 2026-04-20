@@ -28,7 +28,7 @@ One climate entity per thermostat connected to the gateway. Two thermostat famil
 | **Window / Door** | Open/closed state (SW600, OS600) |
 | **Water leak** | Moisture detection (WLS600) |
 | **Smoke** | Smoke alarm (SmokeSensor-EM) |
-| **Low battery** | Battery warning for wireless sensors |
+| **Low battery** | Battery warning for wireless sensors and TRVs (it600MINITRV via TRVError22) |
 | **Thermostat problem** | Aggregated thermostat error flags with human-readable descriptions as attributes |
 | **Battery problem** | Battery-specific thermostat error indicator |
 
@@ -131,7 +131,7 @@ This method is useful for one-off troubleshooting since it automatically reverts
 
 ## Supported devices
 
-SQ610RF, SQ610RF(WB), SQ610RFNH, FC600, SP600, SPE600, SR600, RS600, SW600, OS600, WLS600, SmokeSensor-EM, SD600, TS600, RE600, RE10B, it600MINITRV, it600Receiver.
+SQ610RF, SQ610RF(WB), SQ610RFNH, FC600, SP600, SPE600, SR600, RS600, SW600, OS600, WLS600, SmokeSensor-EM, SD600, TS600, RE600, RE10B, TRV3RF, it600MINITRV, it600Receiver.
 
 ## License
 

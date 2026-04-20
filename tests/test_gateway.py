@@ -1645,6 +1645,134 @@ class TestRefreshBinarySensorDevices:
         gw._error_binary_sensor_devices = {"climate_001_problem": err}
         assert gw.get_binary_sensor_device("climate_001_problem") is err
 
+    async def test_it600minitrv_low_battery_on(self):
+        """TRVError22=1 on it600MINITRV creates low_battery binary sensor (on)."""
+        gw = _make_gateway()
+        devices = [
+            {
+                "data": {"UniID": "trv_lb"},
+                "sBasicS": {"ModelIdentifier": "it600MINITRV"},
+            }
+        ]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_lb", "Endpoint": 1},
+                    "sIT600I": {"RelayStatus": 0, "TRVError22": 1},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Living Room"}',
+                        "FirmwareVersion": "00920041",
+                    },
+                    "sBasicS": {
+                        "ManufactureName": "SALUS",
+                        "ModelIdentifier": "it600MINITRV",
+                        "HardwareVersion": "64",
+                    },
+                    "DeviceL": {"ModelIdentifier_i": "it600MINITRV"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_binary_sensor_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        assert "trv_lb_low_battery" in bs
+        dev = bs["trv_lb_low_battery"]
+        assert dev.is_on is True
+        assert dev.device_class == "battery"
+        assert dev.parent_unique_id == "trv_lb"
+        assert dev.entity_category == "diagnostic"
+        assert dev.name == "TRV Living Room Low battery"
+
+    async def test_it600minitrv_low_battery_off(self):
+        """TRVError22=0 on it600MINITRV creates low_battery binary sensor (off)."""
+        gw = _make_gateway()
+        devices = [
+            {
+                "data": {"UniID": "trv_ok"},
+                "sBasicS": {"ModelIdentifier": "it600MINITRV"},
+            }
+        ]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_ok", "Endpoint": 1},
+                    "sIT600I": {"RelayStatus": 0, "TRVError22": 0},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Bedroom"}',
+                        "FirmwareVersion": "00920041",
+                    },
+                    "sBasicS": {
+                        "ManufactureName": "SALUS",
+                        "ModelIdentifier": "it600MINITRV",
+                        "HardwareVersion": "64",
+                    },
+                    "DeviceL": {"ModelIdentifier_i": "it600MINITRV"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_binary_sensor_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        assert "trv_ok_low_battery" in bs
+        assert bs["trv_ok_low_battery"].is_on is False
+
+    async def test_it600minitrv_no_trverror22_no_low_battery(self):
+        """it600MINITRV without TRVError22 field creates no low_battery sensor."""
+        gw = _make_gateway()
+        devices = [
+            {
+                "data": {"UniID": "trv_noerr"},
+                "sBasicS": {"ModelIdentifier": "it600MINITRV"},
+            }
+        ]
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "trv_noerr", "Endpoint": 1},
+                    "sIT600I": {"RelayStatus": 0},
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "TRV Hall"}',
+                        "FirmwareVersion": "00920041",
+                    },
+                    "sBasicS": {
+                        "ManufactureName": "SALUS",
+                        "ModelIdentifier": "it600MINITRV",
+                        "HardwareVersion": "64",
+                    },
+                    "DeviceL": {"ModelIdentifier_i": "it600MINITRV"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_binary_sensor_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        assert "trv_noerr" in bs  # main device exists
+        assert "trv_noerr_low_battery" not in bs  # no low_battery sub-entity
+
 
 # ---------------------------------------------------------------------------
 #  Refresh — switches
