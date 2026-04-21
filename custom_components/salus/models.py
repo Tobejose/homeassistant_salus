@@ -46,6 +46,7 @@ class ClimateDevice:
     manufacturer: str
     model: str | None
     sw_version: str | None
+    extra_state_attributes: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

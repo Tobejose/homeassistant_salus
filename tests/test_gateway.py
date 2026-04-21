@@ -1291,6 +1291,249 @@ class TestRefreshClimateErrorSensors:
         assert "err_th_problem" in bs
 
 
+# ---------------------------------------------------------------------------
+#  TRV3RF — valve opening, open window, error sensor
+# ---------------------------------------------------------------------------
+
+
+class TestTRV3RFValveOpening:
+    """Test TRVOutputPercentage is exposed as a climate extra_state_attribute."""
+
+    @staticmethod
+    def _trv_response(sit6zb=None, **extras):
+        ds = {
+            "data": {"UniID": "trv_vo", "Endpoint": 1},
+            "sTherS": {
+                "LocalTemperature_x100": 2000,
+                "HeatingSetpoint_x100": 2100,
+                "MaxHeatSetpoint_x100": 3500,
+                "MinHeatSetpoint_x100": 500,
+                "SystemMode": 4,
+                "RunningState": 0,
+            },
+            "sComm": {"HoldType": 0, "DeviceErrorCode": "0000000000000000",
+                       "OpenWindowStatus": 0},
+            "sZDOInfo": {"OnlineStatus_i": 1},
+            "sZDO": {"DeviceName": '{"deviceName": "TRV Test"}',
+                      "FirmwareVersion": "45002000"},
+            "sBasicS": {"ManufactureName": "SALUS"},
+            "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+        }
+        if sit6zb is not None:
+            ds["sIT6ZB"] = sit6zb
+        ds.update(extras)
+        return {
+            "status": "success",
+            "id": [ds],
+        }
+
+    async def test_valve_opening_present(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_vo"}, "sTherS": {}}]
+        resp = self._trv_response(sit6zb={"TRVOutputPercentage": 42})
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_vo")
+        assert dev.extra_state_attributes == {"valve_opening": 42}
+
+    async def test_valve_opening_zero(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_vo"}, "sTherS": {}}]
+        resp = self._trv_response(sit6zb={"TRVOutputPercentage": 0})
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_vo")
+        assert dev.extra_state_attributes == {"valve_opening": 0}
+
+    async def test_no_sit6zb_cluster(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_vo"}, "sTherS": {}}]
+        resp = self._trv_response(sit6zb=None)
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_vo")
+        assert dev.extra_state_attributes is None
+
+    async def test_sit6zb_without_percentage(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_vo"}, "sTherS": {}}]
+        resp = self._trv_response(sit6zb={"TRVValveStatus": 0})
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        dev = gw.get_climate_device("trv_vo")
+        assert dev.extra_state_attributes is None
+
+
+class TestTRV3RFOpenWindow:
+    """Test OpenWindowStatus creates a window binary sensor for TRVs."""
+
+    @staticmethod
+    def _trv_response(open_window_status=0, **scomm_extras):
+        scomm = {"HoldType": 0, "DeviceErrorCode": "0000000000000000",
+                 "OpenWindowStatus": open_window_status}
+        scomm.update(scomm_extras)
+        return {
+            "status": "success",
+            "id": [{
+                "data": {"UniID": "trv_ow", "Endpoint": 1},
+                "sTherS": {
+                    "LocalTemperature_x100": 2000,
+                    "HeatingSetpoint_x100": 2100,
+                    "MaxHeatSetpoint_x100": 3500,
+                    "MinHeatSetpoint_x100": 500,
+                    "SystemMode": 4,
+                    "RunningState": 0,
+                },
+                "sComm": scomm,
+                "sZDOInfo": {"OnlineStatus_i": 1},
+                "sZDO": {"DeviceName": '{"deviceName": "TRV Window"}',
+                          "FirmwareVersion": "45002000"},
+                "sBasicS": {"ManufactureName": "SALUS"},
+                "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+            }],
+        }
+
+    async def test_open_window_closed(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_ow"}, "sTherS": {}}]
+        resp = self._trv_response(open_window_status=0)
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        ow = bs["trv_ow_open_window"]
+        assert ow.is_on is False
+        assert ow.device_class == "window"
+        assert ow.parent_unique_id == "trv_ow"
+
+    async def test_open_window_detected(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_ow"}, "sTherS": {}}]
+        resp = self._trv_response(open_window_status=1)
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        ow = bs["trv_ow_open_window"]
+        assert ow.is_on is True
+        assert ow.device_class == "window"
+
+    async def test_no_open_window_field(self):
+        """When OpenWindowStatus is absent, no binary sensor is created."""
+        gw = _make_gateway()
+        scomm = {"HoldType": 0, "DeviceErrorCode": "0000000000000000"}
+        resp = {
+            "status": "success",
+            "id": [{
+                "data": {"UniID": "trv_ow", "Endpoint": 1},
+                "sTherS": {
+                    "LocalTemperature_x100": 2000,
+                    "HeatingSetpoint_x100": 2100,
+                    "MaxHeatSetpoint_x100": 3500,
+                    "MinHeatSetpoint_x100": 500,
+                    "SystemMode": 4,
+                    "RunningState": 0,
+                },
+                "sComm": scomm,
+                "sZDOInfo": {"OnlineStatus_i": 1},
+                "sZDO": {"DeviceName": '{"deviceName": "TRV Window"}',
+                          "FirmwareVersion": "45002000"},
+                "sBasicS": {"ManufactureName": "SALUS"},
+                "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+            }],
+        }
+        devices = [{"data": {"UniID": "trv_ow"}, "sTherS": {}}]
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        assert "trv_ow_open_window" not in bs
+
+
+class TestTRV3RFErrorSensor:
+    """Test DeviceErrorCode creates a problem binary sensor for TRVs."""
+
+    @staticmethod
+    def _trv_response(error_code="0000000000000000"):
+        return {
+            "status": "success",
+            "id": [{
+                "data": {"UniID": "trv_err", "Endpoint": 1},
+                "sTherS": {
+                    "LocalTemperature_x100": 2000,
+                    "HeatingSetpoint_x100": 2100,
+                    "MaxHeatSetpoint_x100": 3500,
+                    "MinHeatSetpoint_x100": 500,
+                    "SystemMode": 4,
+                    "RunningState": 0,
+                },
+                "sComm": {"HoldType": 0, "DeviceErrorCode": error_code,
+                           "OpenWindowStatus": 0},
+                "sZDOInfo": {"OnlineStatus_i": 1},
+                "sZDO": {"DeviceName": '{"deviceName": "TRV Error"}',
+                          "FirmwareVersion": "45002000"},
+                "sBasicS": {"ManufactureName": "SALUS"},
+                "DeviceL": {"ModelIdentifier_i": "TRV3RF"},
+            }],
+        }
+
+    async def test_no_error(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_err"}, "sTherS": {}}]
+        resp = self._trv_response("0000000000000000")
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        problem = bs["trv_err_problem"]
+        assert problem.is_on is False
+        assert problem.device_class == "problem"
+        assert problem.entity_category == "diagnostic"
+        assert problem.parent_unique_id == "trv_err"
+        assert problem.extra_state_attributes == {
+            "error_code": "0000000000000000",
+        }
+
+    async def test_active_error(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_err"}, "sTherS": {}}]
+        resp = self._trv_response("0100000000000000")
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        problem = bs["trv_err_problem"]
+        assert problem.is_on is True
+        assert problem.extra_state_attributes == {
+            "error_code": "0100000000000000",
+        }
+
+    async def test_empty_error_code(self):
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "trv_err"}, "sTherS": {}}]
+        resp = self._trv_response("")
+        with patch.object(gw, "_make_encrypted_request",
+                          new_callable=AsyncMock, return_value=resp):
+            await gw._refresh_climate_devices(devices)
+
+        bs = gw.get_binary_sensor_devices()
+        problem = bs["trv_err_problem"]
+        assert problem.is_on is False
+
+
 class TestRefreshSensorDevices:
     """Test _refresh_sensor_devices parsing."""
 

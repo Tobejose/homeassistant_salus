@@ -147,6 +147,10 @@ class SalusThermostat(SalusEntity, ClimateEntity):
         await self._gateway.set_climate_device_preset(self._idx, preset_mode)
         await self.coordinator.async_request_refresh()
 
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        return self._device.extra_state_attributes
+
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         await self._gateway.set_climate_device_fan_mode(self._idx, fan_mode)
         await self.coordinator.async_request_refresh()

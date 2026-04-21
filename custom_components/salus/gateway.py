@@ -973,6 +973,14 @@ class IT600Gateway:
                     hold = scomm["HoldType"]
                     running = ther["RunningState"]
 
+                    # Valve opening percentage from sIT6ZB cluster.
+                    trv_attrs: dict[str, Any] = {}
+                    sit6zb = ds.get("sIT6ZB")
+                    if sit6zb is not None:
+                        valve_pct = sit6zb.get("TRVOutputPercentage")
+                        if valve_pct is not None:
+                            trv_attrs["valve_opening"] = valve_pct
+
                     device = ClimateDevice(
                         **common,
                         current_humidity=None,
@@ -1021,6 +1029,7 @@ class IT600Gateway:
                         supported_features=(
                             SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
                         ),
+                        extra_state_attributes=trv_attrs or None,
                     )
 
                 else:
@@ -1147,6 +1156,50 @@ class IT600Gateway:
                             extra_state_attributes={
                                 "errors": active_battery,
                             },
+                        )
+
+                # TRV devices: problem sensor from DeviceErrorCode and
+                # open-window binary sensor from OpenWindowStatus.
+                if ther is not None and scomm is not None and th is None:
+                    # DeviceErrorCode is a hex string (e.g. "0000000000000000");
+                    # any non-zero value indicates an active error.
+                    error_code = scomm.get("DeviceErrorCode", "")
+                    has_error = bool(
+                        error_code and error_code.strip("0")
+                    )
+                    problem_uid = f"{unique_id}_problem"
+                    error_local[problem_uid] = BinarySensorDevice(
+                        available=device.available,
+                        name=f"{device.name} Problem",
+                        unique_id=problem_uid,
+                        is_on=has_error,
+                        device_class="problem",
+                        data=ds["data"],
+                        manufacturer=device.manufacturer,
+                        model=device.model,
+                        sw_version=device.sw_version,
+                        parent_unique_id=unique_id,
+                        entity_category="diagnostic",
+                        extra_state_attributes={
+                            "error_code": error_code,
+                        },
+                    )
+
+                    # Open-window detection (0 = closed, non-zero = open).
+                    open_window_raw = scomm.get("OpenWindowStatus")
+                    if open_window_raw is not None:
+                        ow_uid = f"{unique_id}_open_window"
+                        error_local[ow_uid] = BinarySensorDevice(
+                            available=device.available,
+                            name=f"{device.name} Open window",
+                            unique_id=ow_uid,
+                            is_on=open_window_raw != 0,
+                            device_class="window",
+                            data=ds["data"],
+                            manufacturer=device.manufacturer,
+                            model=device.model,
+                            sw_version=device.sw_version,
+                            parent_unique_id=unique_id,
                         )
 
                 if send_callback:

@@ -100,6 +100,41 @@ class TestSalusThermostatProperties:
         entity, _ = _make_entity(climate_device)
         assert entity.current_humidity is None
 
+    def test_extra_state_attributes_none(self, climate_device):
+        entity, _ = _make_entity(climate_device)
+        assert entity.extra_state_attributes is None
+
+    def test_extra_state_attributes_with_valve_opening(self):
+        device = ClimateDevice(
+            available=True,
+            name="TRV Test",
+            unique_id="trv_attr",
+            temperature_unit="°C",
+            precision=0.1,
+            current_temperature=20.0,
+            target_temperature=21.0,
+            max_temp=35.0,
+            min_temp=5.0,
+            current_humidity=None,
+            hvac_mode=HVAC_MODE_HEAT,
+            hvac_action=CURRENT_HVAC_HEAT,
+            hvac_modes=[HVAC_MODE_HEAT, HVAC_MODE_AUTO],
+            preset_mode=PRESET_FOLLOW_SCHEDULE,
+            preset_modes=[PRESET_FOLLOW_SCHEDULE, PRESET_PERMANENT_HOLD],
+            fan_mode=None,
+            fan_modes=None,
+            locked=None,
+            supported_features=SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE,
+            device_class="temperature",
+            data={"UniID": "trv_attr", "Endpoint": 1},
+            manufacturer="SALUS",
+            model="TRV3RF",
+            sw_version="1.0",
+            extra_state_attributes={"valve_opening": 42},
+        )
+        entity, _ = _make_entity(device)
+        assert entity.extra_state_attributes == {"valve_opening": 42}
+
     def test_should_poll_false(self, climate_device):
         entity, _ = _make_entity(climate_device)
         assert entity.should_poll is False
