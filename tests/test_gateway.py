@@ -636,6 +636,138 @@ class TestRefreshClimateDevices:
         assert dev.fan_mode == FAN_MODE_AUTO
         assert dev.preset_mode == PRESET_FOLLOW_SCHEDULE
 
+    # -- floor temperature sensor -----------------------------------------
+
+    async def test_floor_temp_sensor_created_when_probe_connected(self):
+        """OUTSensorProbe=1 + valid Status_d → floor temperature SensorDevice."""
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "sq_floor"}, "sIT600TH": {}}]
+        # Status_d chars 8-11 = room temp (1650 = 16.50°C),
+        # chars 12-15 = floor temp (1843 = 18.43°C).
+        status_d = "f1e90d021650184301110021002400040000303030300000400d"
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "sq_floor", "Endpoint": 9},
+                    "sIT600TH": {
+                        "LocalTemperature_x100": 1650,
+                        "HeatingSetpoint_x100": 1100,
+                        "MaxHeatSetpoint_x100": 3000,
+                        "MinHeatSetpoint_x100": 500,
+                        "HoldType": 2,
+                        "RunningState": 0,
+                        "Status_d": status_d,
+                        "OUTSensorProbe": 1,
+                        "OUTSensorType": 0,
+                    },
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "Dachboden"}',
+                        "FirmwareVersion": "0000002A",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "SQ610"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        sensor_devs = gw.get_sensor_devices()
+        assert "sq_floor_floor_temperature" in sensor_devs
+        ft = sensor_devs["sq_floor_floor_temperature"]
+        assert ft.device_class == "temperature"
+        assert ft.state == 18.43
+        assert ft.unit_of_measurement == "°C"
+        assert ft.parent_unique_id == "sq_floor"
+        assert ft.entity_category is None
+        assert ft.name == "Dachboden Floor temperature"
+        assert gw.get_sensor_device("sq_floor_floor_temperature") is ft
+
+    async def test_floor_temp_sensor_not_created_when_probe_absent(self):
+        """OUTSensorProbe=0 → no floor temperature sensor."""
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "sq_noprobe"}, "sIT600TH": {}}]
+        status_d = "f1e90d021650184301110021002400040000303030300000400d"
+        resp = {
+            "status": "success",
+            "id": [
+                {
+                    "data": {"UniID": "sq_noprobe", "Endpoint": 9},
+                    "sIT600TH": {
+                        "LocalTemperature_x100": 1650,
+                        "HeatingSetpoint_x100": 1100,
+                        "MaxHeatSetpoint_x100": 3000,
+                        "MinHeatSetpoint_x100": 500,
+                        "HoldType": 0,
+                        "RunningState": 0,
+                        "Status_d": status_d,
+                        "OUTSensorProbe": 0,
+                    },
+                    "sZDOInfo": {"OnlineStatus_i": 1},
+                    "sZDO": {
+                        "DeviceName": '{"deviceName": "No Probe"}',
+                        "FirmwareVersion": "1.0",
+                    },
+                    "sBasicS": {"ManufactureName": "SALUS"},
+                    "DeviceL": {"ModelIdentifier_i": "SQ610"},
+                }
+            ],
+        }
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        sensor_devs = gw.get_sensor_devices()
+        assert not any(k.endswith("_floor_temperature") for k in sensor_devs)
+
+    async def test_floor_temp_sensor_not_created_when_no_status_d(self):
+        """No Status_d field → no floor temperature sensor."""
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "sq_nosd"}, "sIT600TH": {}}]
+        resp = self._it600th_response()
+        resp["id"][0]["sIT600TH"]["OUTSensorProbe"] = 1
+        # _it600th_response does not include Status_d
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        sensor_devs = gw.get_sensor_devices()
+        assert not any(k.endswith("_floor_temperature") for k in sensor_devs)
+
+    async def test_floor_temp_sensor_not_created_when_status_d_too_short(self):
+        """Status_d shorter than 16 chars → no floor temperature sensor."""
+        gw = _make_gateway()
+        devices = [{"data": {"UniID": "sq_short"}, "sIT600TH": {}}]
+        resp = self._it600th_response()
+        resp["id"][0]["data"]["UniID"] = "sq_short"
+        resp["id"][0]["sIT600TH"]["OUTSensorProbe"] = 1
+        resp["id"][0]["sIT600TH"]["Status_d"] = "f1e90d02165018"  # only 14 chars
+        with patch.object(
+            gw,
+            "_make_encrypted_request",
+            new_callable=AsyncMock,
+            return_value=resp,
+        ):
+            await gw._refresh_climate_devices(devices)
+
+        sensor_devs = gw.get_sensor_devices()
+        assert not any(k.endswith("_floor_temperature") for k in sensor_devs)
+
     async def test_battery_extracted_from_status_d(self):
         """Battery level is character 99 in Status_d (0-5 → 0-100%)."""
         gw = _make_gateway()

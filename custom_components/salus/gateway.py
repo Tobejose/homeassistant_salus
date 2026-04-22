@@ -110,6 +110,7 @@ class IT600Gateway:
         self._sensor_devices: dict[str, SensorDevice] = {}
         self._battery_sensor_devices: dict[str, SensorDevice] = {}
         self._humidity_sensor_devices: dict[str, SensorDevice] = {}
+        self._floor_temp_sensor_devices: dict[str, SensorDevice] = {}
         self._energy_sensor_devices: dict[str, SensorDevice] = {}
         self._sensor_update_callbacks: list[Callable[..., Awaitable[None]]] = []
 
@@ -731,12 +732,14 @@ class IT600Gateway:
         local: dict[str, ClimateDevice] = {}
         battery_local: dict[str, SensorDevice] = {}
         humidity_local: dict[str, SensorDevice] = {}
+        floor_temp_local: dict[str, SensorDevice] = {}
         error_local: dict[str, BinarySensorDevice] = {}
 
         if not devices:
             self._climate_devices = local
             self._battery_sensor_devices = battery_local
             self._humidity_sensor_devices = humidity_local
+            self._floor_temp_sensor_devices = floor_temp_local
             self._error_binary_sensor_devices = error_local
             return
 
@@ -820,6 +823,43 @@ class IT600Gateway:
                                 parent_unique_id=unique_id,
                                 entity_category=None,
                             )
+
+                    # Floor temperature sensor — available on SQ610
+                    # thermostats with an external floor probe connected.
+                    # OUTSensorProbe == 1 indicates the probe is present.
+                    # The floor temperature (×100) is BCD-encoded in
+                    # Status_d at character positions 12–15.
+                    if th.get("OUTSensorProbe") == 1 and len(status_d) >= 16:
+                        try:
+                            floor_temp_raw = int(status_d[12:16])
+                            if 0 < floor_temp_raw <= 10000:
+                                ft_uid = f"{unique_id}_floor_temperature"
+                                floor_temp_local[ft_uid] = SensorDevice(
+                                    available=ds.get("sZDOInfo", {}).get(
+                                        "OnlineStatus_i", 1
+                                    )
+                                    == 1,
+                                    name=(
+                                        f"{self._device_name(ds, 'Unknown')}"
+                                        " Floor temperature"
+                                    ),
+                                    unique_id=ft_uid,
+                                    state=floor_temp_raw / 100,
+                                    unit_of_measurement=TEMP_CELSIUS,
+                                    device_class="temperature",
+                                    data=ds["data"],
+                                    manufacturer=ds.get("sBasicS", {}).get(
+                                        "ManufactureName", "SALUS"
+                                    ),
+                                    model=model,
+                                    sw_version=ds.get("sZDO", {}).get(
+                                        "FirmwareVersion"
+                                    ),
+                                    parent_unique_id=unique_id,
+                                    entity_category=None,
+                                )
+                        except (ValueError, IndexError):
+                            pass
 
                     hold = th["HoldType"]
                     running = th["RunningState"]
@@ -1211,6 +1251,7 @@ class IT600Gateway:
         self._climate_devices = local
         self._battery_sensor_devices = battery_local
         self._humidity_sensor_devices = humidity_local
+        self._floor_temp_sensor_devices = floor_temp_local
         self._error_binary_sensor_devices = error_local
 
     # ------------------------------------------------------------------
@@ -1300,6 +1341,7 @@ class IT600Gateway:
             **self._sensor_devices,
             **self._battery_sensor_devices,
             **self._humidity_sensor_devices,
+            **self._floor_temp_sensor_devices,
             **self._energy_sensor_devices,
         }
 
@@ -1308,6 +1350,7 @@ class IT600Gateway:
             self._sensor_devices.get(device_id)
             or self._battery_sensor_devices.get(device_id)
             or self._humidity_sensor_devices.get(device_id)
+            or self._floor_temp_sensor_devices.get(device_id)
             or self._energy_sensor_devices.get(device_id)
         )
 
