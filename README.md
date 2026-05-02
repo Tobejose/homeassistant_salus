@@ -1,5 +1,9 @@
 # Salus iT600 for Home Assistant
 
+> **⚠️ This repository is no longer actively maintained.**
+> Development has moved to **[homeassistant_salus by Jordi-14](https://github.com/Jordi-14/homeassistant_salus)**.
+> That fork is on track to become part of HACS default repositories, has a superior architecture, and is actively maintained by two developers, giving it a much better chance of long-term survival. Please use it instead.
+
 A custom [Home Assistant](https://www.home-assistant.io/) integration that lets you control and monitor your [Salus iT600](https://salus-controls.com/) smart home devices **locally** through the UGE600 or UG800 gateway — thermostats, smart plugs, roller shutters, sensors, and more, all without cloud dependency.
 
 ## Features
