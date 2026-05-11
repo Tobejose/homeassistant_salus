@@ -1,3 +1,19 @@
+## Credits
+
+This project is a modification of [homeassistant_salus](https://github.com/leonardpitzu/homeassistant_salus),
+originally created by [leonardpitzu].
+
+Changes made in this version:
+- Modified the file `homeassistant/custom_components/salus/gateway.py`
+
+iT600 VS thermostats are able to enter cooling mode if the wiring centres are properly configured. The previous design of `gateway.py` only allowed Auto mode and Heat mode, and would break if the wiring centres were configured in cooling mode.
+
+This new `gateway.py` allows cooling mode to be handled normally.
+
+All original code retains its original authorship and license.
+The modifications made by me correspond only to the changes listed above.
+
+
 # Salus iT600 for Home Assistant
 
 > **⚠️ This repository is no longer actively maintained.**
