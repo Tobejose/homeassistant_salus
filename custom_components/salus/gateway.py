@@ -110,7 +110,6 @@ class IT600Gateway:
         self._sensor_devices: dict[str, SensorDevice] = {}
         self._battery_sensor_devices: dict[str, SensorDevice] = {}
         self._humidity_sensor_devices: dict[str, SensorDevice] = {}
-        self._floor_temp_sensor_devices: dict[str, SensorDevice] = {}
         self._energy_sensor_devices: dict[str, SensorDevice] = {}
         self._sensor_update_callbacks: list[Callable[..., Awaitable[None]]] = []
 
@@ -696,25 +695,6 @@ class IT600Gateway:
                         parent_unique_id=unique_id,
                         entity_category="diagnostic",
                     )
-                elif model == "it600MINITRV":
-                    # it600MINITRV has no sPowerS or sIASZS clusters;
-                    # low battery is reported via TRVError22 in sIT600I.
-                    trv_low_batt = ds.get("sIT600I", {}).get("TRVError22")
-                    if trv_low_batt is not None:
-                        lb_uid = f"{unique_id}_low_battery"
-                        local[lb_uid] = BinarySensorDevice(
-                            available=device.available,
-                            name=f"{device.name} Low battery",
-                            unique_id=lb_uid,
-                            is_on=trv_low_batt == 1,
-                            device_class="battery",
-                            data=ds["data"],
-                            manufacturer=device.manufacturer,
-                            model=device.model,
-                            sw_version=device.sw_version,
-                            parent_unique_id=unique_id,
-                            entity_category="diagnostic",
-                        )
 
                 if send_callback:
                     self._binary_sensor_devices[device.unique_id] = device
@@ -732,14 +712,12 @@ class IT600Gateway:
         local: dict[str, ClimateDevice] = {}
         battery_local: dict[str, SensorDevice] = {}
         humidity_local: dict[str, SensorDevice] = {}
-        floor_temp_local: dict[str, SensorDevice] = {}
         error_local: dict[str, BinarySensorDevice] = {}
 
         if not devices:
             self._climate_devices = local
             self._battery_sensor_devices = battery_local
             self._humidity_sensor_devices = humidity_local
-            self._floor_temp_sensor_devices = floor_temp_local
             self._error_binary_sensor_devices = error_local
             return
 
@@ -824,56 +802,45 @@ class IT600Gateway:
                                 entity_category=None,
                             )
 
-                    # Floor temperature sensor — available on SQ610
-                    # thermostats with an external floor probe connected.
-                    # OUTSensorProbe == 1 indicates the probe is present.
-                    # The floor temperature (×100) is BCD-encoded in
-                    # Status_d at character positions 12–15.
-                    if th.get("OUTSensorProbe") == 1 and len(status_d) >= 16:
-                        try:
-                            floor_temp_raw = int(status_d[12:16])
-                            if 0 < floor_temp_raw <= 10000:
-                                ft_uid = f"{unique_id}_floor_temperature"
-                                floor_temp_local[ft_uid] = SensorDevice(
-                                    available=ds.get("sZDOInfo", {}).get(
-                                        "OnlineStatus_i", 1
-                                    )
-                                    == 1,
-                                    name=(
-                                        f"{self._device_name(ds, 'Unknown')}"
-                                        " Floor temperature"
-                                    ),
-                                    unique_id=ft_uid,
-                                    state=floor_temp_raw / 100,
-                                    unit_of_measurement=TEMP_CELSIUS,
-                                    device_class="temperature",
-                                    data=ds["data"],
-                                    manufacturer=ds.get("sBasicS", {}).get(
-                                        "ManufactureName", "SALUS"
-                                    ),
-                                    model=model,
-                                    sw_version=ds.get("sZDO", {}).get(
-                                        "FirmwareVersion"
-                                    ),
-                                    parent_unique_id=unique_id,
-                                    entity_category=None,
-                                )
-                        except (ValueError, IndexError):
-                            pass
-
                     hold = th["HoldType"]
                     running = th["RunningState"]
+
+                    # SystemMode == 3 => cooling, SystemMode == 4 => heating.
+                    # On iT600 thermostats the original code treated the device
+                    # as heating-only, which makes Home Assistant expose and
+                    # write the wrong setpoint while the thermostat is actually
+                    # in cooling mode.
+                    system_mode = th.get("SystemMode", th.get("SystemMode_a"))
+                    is_cooling = system_mode == 3
+
+                    target_temperature = (
+                        th["CoolingSetpoint_x100"] / 100
+                        if is_cooling
+                        else th["HeatingSetpoint_x100"] / 100
+                    )
+                    max_temp = (
+                        th.get("MaxCoolSetpoint_x100", 3000) / 100
+                        if is_cooling
+                        else th.get("MaxHeatSetpoint_x100", 3500) / 100
+                    )
+                    min_temp = (
+                        th.get("MinCoolSetpoint_x100", 500) / 100
+                        if is_cooling
+                        else th.get("MinHeatSetpoint_x100", 500) / 100
+                    )
 
                     device = ClimateDevice(
                         **common,
                         current_humidity=humidity,
                         current_temperature=th["LocalTemperature_x100"] / 100,
-                        target_temperature=th["HeatingSetpoint_x100"] / 100,
-                        max_temp=th.get("MaxHeatSetpoint_x100", 3500) / 100,
-                        min_temp=th.get("MinHeatSetpoint_x100", 500) / 100,
+                        target_temperature=target_temperature,
+                        max_temp=max_temp,
+                        min_temp=min_temp,
                         hvac_mode=(
                             HVAC_MODE_OFF
                             if hold == 7
+                            else HVAC_MODE_COOL
+                            if hold == 2 and is_cooling
                             else HVAC_MODE_HEAT
                             if hold == 2
                             else HVAC_MODE_AUTO
@@ -882,12 +849,15 @@ class IT600Gateway:
                             CURRENT_HVAC_OFF
                             if hold == 7
                             else CURRENT_HVAC_IDLE
-                            if running % 2 == 0
+                            if running == 0
+                            else CURRENT_HVAC_COOL
+                            if is_cooling
                             else CURRENT_HVAC_HEAT
                         ),
                         hvac_modes=[
                             HVAC_MODE_OFF,
                             HVAC_MODE_HEAT,
+                            HVAC_MODE_COOL,
                             HVAC_MODE_AUTO,
                         ],
                         preset_mode=(
@@ -1013,14 +983,6 @@ class IT600Gateway:
                     hold = scomm["HoldType"]
                     running = ther["RunningState"]
 
-                    # Valve opening percentage from sIT6ZB cluster.
-                    trv_attrs: dict[str, Any] = {}
-                    sit6zb = ds.get("sIT6ZB")
-                    if sit6zb is not None:
-                        valve_pct = sit6zb.get("TRVOutputPercentage")
-                        if valve_pct is not None:
-                            trv_attrs["valve_opening"] = valve_pct
-
                     device = ClimateDevice(
                         **common,
                         current_humidity=None,
@@ -1069,7 +1031,6 @@ class IT600Gateway:
                         supported_features=(
                             SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
                         ),
-                        extra_state_attributes=trv_attrs or None,
                     )
 
                 else:
@@ -1198,50 +1159,6 @@ class IT600Gateway:
                             },
                         )
 
-                # TRV devices: problem sensor from DeviceErrorCode and
-                # open-window binary sensor from OpenWindowStatus.
-                if ther is not None and scomm is not None and th is None:
-                    # DeviceErrorCode is a hex string (e.g. "0000000000000000");
-                    # any non-zero value indicates an active error.
-                    error_code = scomm.get("DeviceErrorCode", "")
-                    has_error = bool(
-                        error_code and error_code.strip("0")
-                    )
-                    problem_uid = f"{unique_id}_problem"
-                    error_local[problem_uid] = BinarySensorDevice(
-                        available=device.available,
-                        name=f"{device.name} Problem",
-                        unique_id=problem_uid,
-                        is_on=has_error,
-                        device_class="problem",
-                        data=ds["data"],
-                        manufacturer=device.manufacturer,
-                        model=device.model,
-                        sw_version=device.sw_version,
-                        parent_unique_id=unique_id,
-                        entity_category="diagnostic",
-                        extra_state_attributes={
-                            "error_code": error_code,
-                        },
-                    )
-
-                    # Open-window detection (0 = closed, non-zero = open).
-                    open_window_raw = scomm.get("OpenWindowStatus")
-                    if open_window_raw is not None:
-                        ow_uid = f"{unique_id}_open_window"
-                        error_local[ow_uid] = BinarySensorDevice(
-                            available=device.available,
-                            name=f"{device.name} Open window",
-                            unique_id=ow_uid,
-                            is_on=open_window_raw != 0,
-                            device_class="window",
-                            data=ds["data"],
-                            manufacturer=device.manufacturer,
-                            model=device.model,
-                            sw_version=device.sw_version,
-                            parent_unique_id=unique_id,
-                        )
-
                 if send_callback:
                     self._climate_devices[device.unique_id] = device
                     await self._send_climate_update_callback(device.unique_id)
@@ -1251,7 +1168,6 @@ class IT600Gateway:
         self._climate_devices = local
         self._battery_sensor_devices = battery_local
         self._humidity_sensor_devices = humidity_local
-        self._floor_temp_sensor_devices = floor_temp_local
         self._error_binary_sensor_devices = error_local
 
     # ------------------------------------------------------------------
@@ -1341,7 +1257,6 @@ class IT600Gateway:
             **self._sensor_devices,
             **self._battery_sensor_devices,
             **self._humidity_sensor_devices,
-            **self._floor_temp_sensor_devices,
             **self._energy_sensor_devices,
         }
 
@@ -1350,7 +1265,6 @@ class IT600Gateway:
             self._sensor_devices.get(device_id)
             or self._battery_sensor_devices.get(device_id)
             or self._humidity_sensor_devices.get(device_id)
-            or self._floor_temp_sensor_devices.get(device_id)
             or self._energy_sensor_devices.get(device_id)
         )
 
@@ -1484,8 +1398,19 @@ class IT600Gateway:
             hold = 7 if mode == HVAC_MODE_OFF else 2 if mode == HVAC_MODE_HEAT else 0
             payload = {"sComm": {"SetHoldType": hold}}
         else:
-            # iT600: HoldType 7 = off, 2 = permanent hold (heat), 0 = follow schedule (auto)
-            hold = 7 if mode == HVAC_MODE_OFF else 2 if mode == HVAC_MODE_HEAT else 0
+            # iT600: HoldType 7 = off, 2 = permanent hold (manual mode in the
+            # currently active system mode), 0 = follow schedule (auto).
+            #
+            # This mirrors the old heating behaviour: AUTO stays AUTO in the UI,
+            # while manual operation is shown as HEAT or COOL depending on the
+            # thermostat SystemMode reported by the gateway.
+            hold = (
+                7
+                if mode == HVAC_MODE_OFF
+                else 0
+                if mode == HVAC_MODE_AUTO
+                else 2
+            )
             payload = {"sIT600TH": {"SetHoldType": hold}}
 
         await self._make_encrypted_request(
@@ -1560,7 +1485,35 @@ class IT600Gateway:
         elif device.model in TRV_VOLTAGE_MODELS:
             payload = {"sTherS": {"SetHeatingSetpoint_x100": value}}
         else:
-            payload = {"sIT600TH": {"SetHeatingSetpoint_x100": value}}
+            # Read the live thermostat state before choosing the write
+            # attribute. The parsed HA entity state may still be stale when a
+            # mode change and a temperature change happen close together.
+            status = await self._make_encrypted_request(
+                "read",
+                {
+                    "requestAttr": "deviceid",
+                    "id": [{"data": device.data}],
+                },
+            )
+
+            ds = status["id"][0] if status.get("id") else {}
+            th = ds.get("sIT600TH", {})
+            system_mode = th.get("SystemMode", th.get("SystemMode_a"))
+            is_cooling = system_mode == 3
+
+            payload = (
+                {"sIT600TH": {"SetCoolingSetpoint_x100": value}}
+                if is_cooling
+                else {"sIT600TH": {"SetHeatingSetpoint_x100": value}}
+            )
+
+            _LOGGER.debug(
+                "Climate temp write device=%s model=%s system_mode=%s payload=%s",
+                getattr(device, "name", device_id),
+                device.model,
+                system_mode,
+                payload,
+            )
 
         await self._make_encrypted_request(
             "write",
